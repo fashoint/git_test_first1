@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, touch-action: manipulation">
+    <title>益智滑块·华容道·乌龟寻路</title>
+    <style>
+        * {
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            box-sizing: border-box;
+        }
+        body {
+            background: #1a2a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', system-ui, 'Microsoft YaHei', sans-serif;
+            margin: 0;
+            padding: 16px;
+        }
+        .game-wrapper {
+            width: 100%;
+            max-width: 500px;
+        }
+        .game-container {
+            background: #2c2c2c;
+            padding: 16px;
+            border-radius: 24px;
+            box-shadow: 0 12px 20px rgba(0,0,0,0.5);
+            position: relative;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            margin: 0 auto;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            background: #1a1a1a;
+            cursor: grab;
+        }
+        canvas:active {
+            cursor: grabbing;
+        }
+        .info-panel {
+            margin-top: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #3a3a3a;
+            padding: 8px 12px;
+            border-radius: 32px;
+            color: #f0e6c5;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .score-area {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            background: #1f3a28;
+            padding: 4px 14px;
+            border-radius: 24px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .score-area .label {
+            font-size: 0.8rem;
+            opacity: 0.9;
+        }
+        .score-area .value {
+            font-size: 1.4rem;
+            color: #ffdd88;
+        }
+        .combo-badge {
+            background: #b87c4a;
+            color: #2c1a0a;
+            padding: 2px 10px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            display: none;
+        }
+        .combo-badge.active {
+            display: inline-block;
+        }
+        .btn-group {
+            display: flex;
+            gap: 6px;
+        }
+        .btn {
+            border: none;
+            font-size: 0.9rem;
+            font-weight: bold;
+            padding: 6px 14px;
+            border-radius: 24px;
+            cursor: pointer;
+            transition: 0.05s linear;
+            box-shadow: 0 3px 0 #5a3016;
+            font-family: inherit;
+        }
+        .reset-btn {
+            background: #b87c4a;
+            color: #2c1a0a;
+        }
+        .speed-btn {
+            background: #d4a44a;
+            color: #2c1a0a;
+            touch-action: manipulation;
+        }
+        .btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 #5a3016;
+        }
+        .game-over-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .game-over-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .game-over-text {
+            color: #ffcc88;
+            font-size: 1.8rem;
+            font-weight: bold;
+            text-shadow: 0 0 12px #000;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+<div class="game-wrapper">
+    <div class="game-container" id="gameContainer">
+        <canvas id="gameCanvas" width="480" height="360"></canvas>
+        <div class="game-over-overlay" id="gameOverlay">
+            <div class="game-over-text">💔 游戏结束</div>
+            <button class="btn reset-btn" id="overlayResetBtn">🔄 再来一局</button>
+        </div>
+        <div class="info-panel">
+            <div class="score-area">
+                <span class="label">🏆</span>
+                <span class="value" id="scoreDisplay">0</span>
+                <span class="combo-badge" id="comboBadge">x1</span>
+            </div>
+            <div class="btn-group">
+                <button class="btn speed-btn" id="speedBtn">⚡ 加速</button>
+                <button class="btn reset-btn" id="resetBtn">🔄 重置</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        // ═══════════════════════════════════════
+        const TURTLE_SPEED = 40;
+        const STRUGGLE_TIME = 2;
+        const SPEED_MULTIPLIER = 2;
+        const ARC_RADIUS = 30;
+        const FLOAT_DURATION = 800; // 浮动文字持续毫秒
+        // ═══════════════════════════════════════
+
+        const ROWS = 3, COLS = 4;
+        const CELL_W = 120, CELL_H = 120;
+        const CANVAS_W = COLS * CELL_W, CANVAS_H = ROWS * CELL_H;
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = CANVAS_W; canvas.height = CANVAS_H;
+
+        let board = [
+            [1, 2, 2, 0],
+            [3, 4, 4, 5],
+            [2, 5, 5, 6]
+        ];
+        let diamondMap = Array(ROWS).fill().map(() => Array(COLS).fill(null));
+        const maxDiamondsOnField = 8;
+
+        let totalScore = 0, combo = 0, diamondEatenThisTile = false;
+        let animating = false, animData = null;
+        let turtle = null, struggleStart = 0, isStruggling = false, gameOver = false;
+        let speedMultiplier = 1, turtleAnimOffset = null;
+
+        // 新增：波次与速度成长
+        let wave = 1;             // 第几波钻石（1开始）
+        let speedFactor = 1.0;   // 速度倍率（每波+0.1）
+
+        // 浮动文字数组
+        let floatingTexts = [];
+
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const comboBadge = document.getElementById('comboBadge');
+        const gameOverlay = document.getElementById('gameOverlay');
+        const speedBtn = document.getElementById('speedBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const overlayResetBtn = document.getElementById('overlayResetBtn');
+
+        // ---------- 辅助函数 ----------
+        function findEmpty() {
+            for(let i=0; i<ROWS; i++)
+                for(let j=0; j<COLS; j++)
+                    if(board[i][j] === 0) return { row: i, col: j };
+            return null;
+        }
+
+        function swapWithEmpty(row, col) {
+            const empty = findEmpty();
+            if(!empty) return false;
+            if(Math.abs(row - empty.row) + Math.abs(col - empty.col) !== 1) return false;
+            [board[row][col], board[empty.row][empty.col]] = [board[empty.row][empty.col], board[row][col]];
+            [diamondMap[row][col], diamondMap[empty.row][empty.col]] = [diamondMap[empty.row][empty.col], diamondMap[row][col]];
+            if(turtle && turtle.row === row && turtle.col === col) {
+                turtle.row = empty.row; turtle.col = empty.col;
+            } else if(turtle && turtle.row === empty.row && turtle.col === empty.col) {
+                turtle.row = row; turtle.col = col;
+            }
+            startAnimation(row, col, empty.row, empty.col);
+            return true;
+        }
+
+        function slideTile(row, col, direction) {
+            const empty = findEmpty();
+            if(!empty) return false;
+            let dr = 0, dc = 0;
+            if(direction === 'up') dr = -1;
+            else if(direction === 'down') dr = 1;
+            else if(direction === 'left') dc = -1;
+            else if(direction === 'right') dc = 1;
+            else return false;
+            if(!((direction==='left'||direction==='right') && row===empty.row) &&
+               !((direction==='up'||direction==='down') && col===empty.col)) return false;
+
+            let curRow = row, curCol = col;
+            while(true) {
+                const nr = curRow + dr, nc = curCol + dc;
+                if(nr<0||nr>=ROWS||nc<0||nc>=COLS) return false;
+                if(board[nr][nc] === 0) break;
+                curRow = nr; curCol = nc;
+            }
+            if(curRow === row && curCol === col) return false;
+
+            const moveType = board[row][col], moveDiamond = diamondMap[row][col];
+            let r = empty.row, c = empty.col;
+            let pr = r - dr, pc = c - dc;
+            while(!(pr === row && pc === col)) {
+                board[r][c] = board[pr][pc];
+                diamondMap[r][c] = diamondMap[pr][pc];
+                r = pr; c = pc;
+                pr = r - dr; pc = c - dc;
+            }
+            board[r][c] = moveType; diamondMap[r][c] = moveDiamond;
+            board[row][col] = 0; diamondMap[row][col] = null;
+
+            if(turtle) {
+                if(turtle.row === row && turtle.col === col) {
+                    turtle.row = r; turtle.col = c;
+                } else {
+                    let checkRow = row + dr, checkCol = col + dc;
+                    while(!(checkRow === empty.row && checkCol === empty.col)) {
+                        if(turtle.row === checkRow && turtle.col === checkCol) {
+                            turtle.row += dr;
+                            turtle.col += dc;
+                            break;
+                        }
+                        checkRow += dr; checkCol += dc;
+                    }
+                }
+            }
+            startAnimation(row, col, row+dr, col+dc);
+            return true;
+        }
+
+        function startAnimation(fr, fc, tr, tc) {
+            if(animating) return;
+            animating = true;
+            animData = {
+                fromX: fc * CELL_W, fromY: fr * CELL_H,
+                toX: tc * CELL_W, toY: tr * CELL_H,
+                fromRow: fr, fromCol: fc, toRow: tr, toCol: tc,
+                startTime: performance.now(), duration: 150
+            };
+            turtleAnimOffset = (turtle && turtle.row === fr && turtle.col === fc) ?
+                { fromX: animData.fromX, fromY: animData.fromY, toX: animData.toX, toY: animData.toY } : null;
+        }
+
+        // ---------- 道路规则 ----------
+        function edgePos(side) {
+            const hw = CELL_W/2, hh = CELL_H/2;
+            return {left:{x:0,y:hh}, right:{x:CELL_W,y:hh}, top:{x:hw,y:0}, bottom:{x:hw,y:CELL_H}}[side];
+        }
+        function oppositeSide(side) { return {left:'right', right:'left', top:'bottom', bottom:'top'}[side]; }
+        function deltaFromSide(side) { return {left:{dr:0,dc:-1}, right:{dr:0,dc:1}, top:{dr:-1,dc:0}, bottom:{dr:1,dc:0}}[side]; }
+
+        function canEnter(row, col, side) {
+            if(row<0||row>=ROWS||col<0||col>=COLS) return false;
+            const type = board[row][col];
+            if(type === 0) return false;
+            const allowed = {
+                1: ['left','right'], 2: ['left','right','top','bottom'],
+                3: ['top','right'], 4: ['left','top','bottom','right'],
+                5: ['left','bottom','top','right'], 6: ['left','bottom']
+            };
+            return allowed[type]?.includes(side) ?? false;
+        }
+
+        function entryToExit(type, entrySide) {
+            const map = {
+                1: {left:'right', right:'left'},
+                2: {left:'right', right:'left', top:'bottom', bottom:'top'},
+                3: {top:'right', right:'top'},
+                4: {left:'top', top:'left', bottom:'right', right:'bottom'},
+                5: {left:'bottom', bottom:'left', top:'right', right:'top'},
+                6: {left:'bottom', bottom:'left'}
+            };
+            return map[type]?.[entrySide] ?? null;
+        }
+
+        // ---------- 路径几何 ----------
+        function buildPath(type, entrySide) {
+            const startPt = edgePos(entrySide);
+            const exitSide = entryToExit(type, entrySide);
+            const endPt = edgePos(exitSide);
+
+            if (type === 1 || type === 2) {
+                const totalLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+                return {
+                    totalLen,
+                    evaluate: (s) => {
+                        const t = Math.max(0, Math.min(1, s / totalLen));
+                        return {
+                            x: startPt.x + (endPt.x - startPt.x) * t,
+                            y: startPt.y + (endPt.y - startPt.y) * t,
+                            angle: Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x)
+                        };
+                    }
+                };
+            }
+
+            const r = ARC_RADIUS;
+            const center = { x: CELL_W/2, y: CELL_H/2 };
+            const toCenter1 = { x: center.x - startPt.x, y: center.y - startPt.y };
+            const dist1 = Math.hypot(toCenter1.x, toCenter1.y);
+            const u1 = { x: toCenter1.x / dist1, y: toCenter1.y / dist1 };
+
+            const toCenter2 = { x: center.x - endPt.x, y: center.y - endPt.y };
+            const dist2 = Math.hypot(toCenter2.x, toCenter2.y);
+            const u2 = { x: toCenter2.x / dist2, y: toCenter2.y / dist2 };
+
+            const T1 = { x: center.x - u1.x * r, y: center.y - u1.y * r };
+            const T2 = { x: center.x - u2.x * r, y: center.y - u2.y * r };
+            const straightLen1 = dist1 - r;
+            const straightLen2 = dist2 - r;
+
+            const bisect = { x: u1.x + u2.x, y: u1.y + u2.y };
+            const bisectLen = Math.hypot(bisect.x, bisect.y);
+            if (bisectLen < 1e-6) return buildPath(1, entrySide);
+            const u_bisect = { x: bisect.x / bisectLen, y: bisect.y / bisectLen };
+            const O = {
+                x: center.x - u_bisect.x * r * Math.sqrt(2),
+                y: center.y - u_bisect.y * r * Math.sqrt(2)
+            };
+
+            const startAngle = Math.atan2(T1.y - O.y, T1.x - O.x);
+            const endAngle = Math.atan2(T2.y - O.y, T2.x - O.x);
+            let diff = endAngle - startAngle;
+            while (diff > Math.PI) diff -= 2 * Math.PI;
+            while (diff < -Math.PI) diff += 2 * Math.PI;
+            const clockwise = diff < 0;
+            const arcAngle = Math.abs(diff);
+            const arcLen = r * arcAngle;
+            const totalLen = straightLen1 + arcLen + straightLen2;
+
+            return {
+                totalLen,
+                evaluate: (s) => {
+                    if (s <= straightLen1) {
+                        const t = s / straightLen1;
+                        return {
+                            x: startPt.x + (T1.x - startPt.x) * t,
+                            y: startPt.y + (T1.y - startPt.y) * t,
+                            angle: Math.atan2(T1.y - startPt.y, T1.x - startPt.x)
+                        };
+                    } else if (s <= straightLen1 + arcLen) {
+                        const arcProgress = (s - straightLen1) / arcLen;
+                        const angle = clockwise ?
+                            startAngle - arcProgress * arcAngle :
+                            startAngle + arcProgress * arcAngle;
+                        const tangentAngle = clockwise ? angle - Math.PI/2 : angle + Math.PI/2;
+                        return {
+                            x: O.x + r * Math.cos(angle),
+                            y: O.y + r * Math.sin(angle),
+                            angle: tangentAngle
+                        };
+                    } else {
+                        const t = (s - straightLen1 - arcLen) / straightLen2;
+                        return {
+                            x: T2.x + (endPt.x - T2.x) * t,
+                            y: T2.y + (endPt.y - T2.y) * t,
+                            angle: Math.atan2(endPt.y - T2.y, endPt.x - T2.x)
+                        };
+                    }
+                }
+            };
+        }
+
+        // ---------- 钻石与波次刷新 ----------
+        function getDiamondOffsetsForTile(type) {
+            const mid = { top:{x:CELL_W/2,y:0}, bottom:{x:CELL_W/2,y:CELL_H}, left:{x:0,y:CELL_H/2}, right:{x:CELL_W,y:CELL_H/2} };
+            const lineMid = (p1,p2) => ({x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2});
+            function arcMid(entry, exit) {
+                const path = buildPath(type, entry);
+                const pt = path.evaluate(path.totalLen / 2);
+                return { x: pt.x, y: pt.y };
+            }
+            let offsets = [];
+            switch(type) {
+                case 1: offsets.push(lineMid(mid.left, mid.right)); break;
+                case 2: offsets.push({x:CELL_W/2, y:CELL_H/2}); break;
+                case 3: offsets.push(arcMid('top','right')); break;
+                case 4: offsets.push(arcMid('left','top'), arcMid('bottom','right')); break;
+                case 5: offsets.push(arcMid('left','bottom'), arcMid('top','right')); break;
+                case 6: offsets.push(arcMid('left','bottom')); break;
+            }
+            return offsets;
+        }
+
+        function placeDiamonds(maxCount) {
+            diamondMap = Array(ROWS).fill().map(() => Array(COLS).fill(null));
+            const candidates = [];
+            for(let i=0; i<ROWS; i++)
+                for(let j=0; j<COLS; j++)
+                    if(board[i][j] !== 0) candidates.push({row:i, col:j});
+            for(let i = candidates.length-1; i>0; i--) {
+                const j = Math.floor(Math.random()*(i+1));
+                [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+            }
+            const chosen = candidates.slice(0, Math.min(maxCount, candidates.length));
+            for(const {row, col} of chosen) {
+                const type = board[row][col];
+                const offsets = getDiamondOffsetsForTile(type);
+                if(offsets.length === 0) continue;
+                const idx = Math.floor(Math.random() * offsets.length);
+                diamondMap[row][col] = { offsetX: offsets[idx].x, offsetY: offsets[idx].y };
+            }
+        }
+
+        function countDiamondsOnField() {
+            let cnt = 0;
+            for(let i=0; i<ROWS; i++)
+                for(let j=0; j<COLS; j++)
+                    if(diamondMap[i][j]) cnt++;
+            return cnt;
+        }
+
+        // 吃完所有钻石后调用
+        function refillDiamonds() {
+            wave++;
+            speedFactor += 0.1;
+            placeDiamonds(maxDiamondsOnField);
+        }
+
+        function initTurtle() {
+            const row = 0, col = 0, entrySide = 'left';
+            turtle = { row, col, entrySide, path: buildPath(board[row][col], entrySide), s: 0 };
+            diamondEatenThisTile = false;
+        }
+
+        // ---------- 浮动文字 ----------
+        function addFloatingText(x, y, text) {
+            const colors = ['#ff5555','#ffaa00','#aaff00','#00ccff','#ff66cc','#ffdd44','#88ff88','#ff8844'];
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            floatingTexts.push({
+                x, y,
+                text,
+                color,
+                startTime: performance.now(),
+                duration: FLOAT_DURATION
+            });
+        }
+
+        // ---------- 游戏循环 ----------
+        let lastTimestamp = 0;
+        function gameLoop(ts) {
+            if(!lastTimestamp) lastTimestamp = ts;
+            const dt = Math.min(0.1, (ts - lastTimestamp) / 1000);
+            lastTimestamp = ts;
+
+            if(animating && animData && ts - animData.startTime >= animData.duration) {
+                animating = false; turtleAnimOffset = null; animData = null;
+            }
+
+            if(!gameOver && !animating && turtle) {
+                if(isStruggling) {
+                    const exitSide = entryToExit(board[turtle.row][turtle.col], turtle.entrySide);
+                    const delta = deltaFromSide(exitSide);
+                    const nr = turtle.row + delta.dr, nc = turtle.col + delta.dc;
+                    if(nr>=0 && nr<ROWS && nc>=0 && nc<COLS && canEnter(nr, nc, oppositeSide(exitSide))) {
+                        isStruggling = false;
+                        turtle.row = nr; turtle.col = nc;
+                        turtle.entrySide = oppositeSide(exitSide);
+                        turtle.path = buildPath(board[nr][nc], turtle.entrySide);
+                        turtle.s = 0; diamondEatenThisTile = false;
+                    } else if(ts/1000 - struggleStart >= STRUGGLE_TIME) {
+                        gameOver = true; isStruggling = false;
+                        gameOverlay.classList.add('active');
+                    }
+                } else {
+                    updateTurtle(dt);
+                }
+            }
+
+            // 更新浮动文字
+            const now = performance.now();
+            floatingTexts = floatingTexts.filter(ft => now - ft.startTime < ft.duration);
+
+            drawFullCanvas();
+            if(!gameOver) requestAnimationFrame(gameLoop);
+        }
+
+        function updateTurtle(dt) {
+            const speed = TURTLE_SPEED * speedMultiplier * speedFactor;
+            turtle.s += speed * dt;
+            if(turtle.s >= turtle.path.totalLen) {
+                const exitSide = entryToExit(board[turtle.row][turtle.col], turtle.entrySide);
+                const delta = deltaFromSide(exitSide);
+                const nr = turtle.row + delta.dr, nc = turtle.col + delta.dc;
+                if(nr>=0 && nr<ROWS && nc>=0 && nc<COLS && canEnter(nr, nc, oppositeSide(exitSide))) {
+                    if(!diamondEatenThisTile) combo = 0;
+                    turtle.row = nr; turtle.col = nc;
+                    turtle.entrySide = oppositeSide(exitSide);
+                    turtle.path = buildPath(board[nr][nc], turtle.entrySide);
+                    turtle.s = 0; diamondEatenThisTile = false;
+                } else { startStruggle(); return; }
+            }
+
+            // 吃钻石检测
+            if(!diamondEatenThisTile && diamondMap[turtle.row][turtle.col]) {
+                const diamond = diamondMap[turtle.row][turtle.col];
+                const pos = turtle.path.evaluate(turtle.s);
+                const dx = pos.x - diamond.offsetX, dy = pos.y - diamond.offsetY;
+                if(Math.hypot(dx, dy) < 16) {
+                    diamondMap[turtle.row][turtle.col] = null;
+                    diamondEatenThisTile = true;
+                    combo++;
+                    const baseScore = 10 + (wave - 1) * 5;   // 当前波次基础分
+                    const addScore = baseScore * combo;
+                    totalScore += addScore;
+                    // 弹出浮动文字
+                    const worldX = turtle.col * CELL_W + pos.x;
+                    const worldY = turtle.row * CELL_H + pos.y;
+                    addFloatingText(worldX, worldY, `+${addScore}`);
+                    updateUI();
+
+                    if(countDiamondsOnField() === 0) {
+                        refillDiamonds();
+                    }
+                }
+            }
+        }
+
+        function startStruggle() {
+            if(isStruggling) return;
+            isStruggling = true;
+            struggleStart = performance.now() / 1000;
+        }
+
+        function updateUI() {
+            scoreDisplay.textContent = totalScore;
+            if(combo > 0) {
+                comboBadge.textContent = `x${combo}`;
+                comboBadge.classList.add('active');
+            } else {
+                comboBadge.classList.remove('active');
+            }
+        }
+
+        // ---------- 绘制 ----------
+        function drawFullCanvas() {
+            ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+            ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+            let animOffX = 0, animOffY = 0;
+            if(animating && animData && turtleAnimOffset) {
+                const t = Math.min(1, (performance.now() - animData.startTime) / animData.duration);
+                const ease = 1 - Math.pow(1-t, 3);
+                animOffX = (animData.toX - animData.fromX) * ease;
+                animOffY = (animData.toY - animData.fromY) * ease;
+            }
+
+            for(let i=0; i<ROWS; i++) {
+                for(let j=0; j<COLS; j++) {
+                    if(animData && ((i===animData.fromRow&&j===animData.fromCol)||(i===animData.toRow&&j===animData.toCol))) continue;
+                    const type = board[i][j], x = j*CELL_W, y = i*CELL_H;
+                    if(type === 0) {
+                        ctx.fillStyle = "#2a2a2a"; ctx.fillRect(x,y,CELL_W,CELL_H);
+                        ctx.strokeStyle = "#444"; ctx.strokeRect(x,y,CELL_W,CELL_H);
+                        continue;
+                    }
+                    drawTile(x, y, CELL_W, CELL_H, type, i, j);
+                }
+            }
+
+            if(animData && animating) {
+                const t = Math.min(1, (performance.now() - animData.startTime) / animData.duration);
+                const ease = 1 - Math.pow(1-t, 3);
+                const curX = animData.fromX + (animData.toX - animData.fromX) * ease;
+                const curY = animData.fromY + (animData.toY - animData.fromY) * ease;
+                const type = board[animData.toRow][animData.toCol];
+                if(type !== 0) drawTile(curX, curY, CELL_W, CELL_H, type, animData.toRow, animData.toCol);
+            }
+
+            if(turtle && !gameOver) {
+                const tx = turtle.col * CELL_W, ty = turtle.row * CELL_H;
+                const pos = turtle.path.evaluate(turtle.s);
+                let worldX = tx + pos.x + animOffX, worldY = ty + pos.y + animOffY;
+                if(isStruggling) {
+                    worldX += Math.sin(performance.now()/30)*3;
+                    worldY += Math.cos(performance.now()/40)*3;
+                }
+                drawTurtle(worldX, worldY, pos.angle);
+            }
+
+            // 绘制浮动文字
+            const now = performance.now();
+            for(const ft of floatingTexts) {
+                const elapsed = now - ft.startTime;
+                const progress = elapsed / ft.duration;
+                const alpha = 1 - progress;
+                const yOffset = -30 * progress;
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.font = "bold 18px 'Segoe UI', sans-serif";
+                ctx.fillStyle = ft.color;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(ft.text, ft.x, ft.y + yOffset);
+                ctx.restore();
+            }
+        }
+
+        function drawTile(x, y, w, h, type, gridRow, gridCol) {
+            const isLight = (type===1||type===2);
+            ctx.fillStyle = isLight ? "#faf0df" : "#e8d8bc";
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = "#8b6946"; ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            ctx.beginPath();
+            ctx.moveTo(x+w/2, y); ctx.lineTo(x+w/2, y+h);
+            ctx.moveTo(x, y+h/2); ctx.lineTo(x+w, y+h/2);
+            ctx.stroke();
+            drawTileRoad(x, y, w, h, type);
+            const diamond = diamondMap[gridRow][gridCol];
+            if(diamond) drawDiamond(x+diamond.offsetX, y+diamond.offsetY);
+        }
+
+        function drawTileRoad(x, y, w, h, type) {
+            ctx.save();
+            ctx.lineCap = "round"; ctx.lineWidth = 8; ctx.strokeStyle = "#4a2e1e";
+            const mid = {
+                top: {x:x+w/2,y:y}, bottom: {x:x+w/2,y:y+h},
+                left: {x:x,y:y+h/2}, right: {x:x+w,y:y+h/2}
+            };
+            const drawLine = (p1,p2) => { ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke(); };
+            const drawArc = (startSide, endSide) => {
+                const startPt = mid[startSide], endPt = mid[endSide];
+                const center = { x: x + w/2, y: y + h/2 };
+                ctx.beginPath(); ctx.moveTo(startPt.x, startPt.y);
+                ctx.arcTo(center.x, center.y, endPt.x, endPt.y, ARC_RADIUS);
+                ctx.lineTo(endPt.x, endPt.y);
+                ctx.stroke();
+            };
+            switch(type) {
+                case 1: drawLine(mid.left, mid.right); break;
+                case 2: drawLine(mid.top, mid.bottom); drawLine(mid.left, mid.right); break;
+                case 3: drawArc('top','right'); break;
+                case 4: drawArc('left','top'); drawArc('bottom','right'); break;
+                case 5: drawArc('left','bottom'); drawArc('top','right'); break;
+                case 6: drawArc('left','bottom'); break;
+            }
+            ctx.restore();
+        }
+
+        function drawDiamond(cx, cy) {
+            ctx.save();
+            ctx.beginPath(); ctx.arc(cx, cy, 11, 0, 2*Math.PI);
+            ctx.fillStyle = "#ffdd77"; ctx.fill();
+            ctx.fillStyle = "#f0b27a";
+            ctx.beginPath(); ctx.moveTo(cx-5, cy-3); ctx.lineTo(cx, cy-10); ctx.lineTo(cx+5, cy-3); ctx.fill();
+            ctx.fillStyle = "#ffe0aa";
+            ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2*Math.PI); ctx.fill();
+            ctx.restore();
+        }
+
+        function drawTurtle(wx, wy, angle) {
+            ctx.save();
+            ctx.translate(wx, wy); ctx.rotate(angle);
+            ctx.font = "26px 'Segoe UI Emoji'";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText("🐢", 0, 0);
+            ctx.restore();
+        }
+
+        // ---------- 交互 ----------
+        let dragStartRow=-1, dragStartCol=-1, dragStartX=0, dragStartY=0, isDragging=false;
+        const DRAG_THRESHOLD=12;
+
+        function getGridFromPixel(px, py) {
+            for(let i=0;i<ROWS;i++)
+                for(let j=0;j<COLS;j++)
+                    if(px>=j*CELL_W && px<=(j+1)*CELL_W && py>=i*CELL_H && py<=(i+1)*CELL_H)
+                        return {row:i, col:j};
+            return null;
+        }
+
+        function onPointerDown(e) {
+            if(animating || gameOver) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mx = (e.clientX - rect.left) * scaleX;
+            const my = (e.clientY - rect.top) * scaleY;
+            const cell = getGridFromPixel(mx, my);
+            if(!cell || board[cell.row][cell.col]===0) return;
+            dragStartRow=cell.row; dragStartCol=cell.col;
+            dragStartX=mx; dragStartY=my; isDragging=true;
+        }
+
+        function onPointerMove(e) {
+            if(!isDragging || animating || gameOver) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mx = (e.clientX - rect.left) * scaleX;
+            const my = (e.clientY - rect.top) * scaleY;
+            const dx = mx - dragStartX, dy = my - dragStartY;
+            if(Math.abs(dx)<DRAG_THRESHOLD && Math.abs(dy)<DRAG_THRESHOLD) return;
+            let dir;
+            if(Math.abs(dx)>Math.abs(dy)) dir = dx>0?'right':'left';
+            else dir = dy>0?'down':'up';
+            const empty = findEmpty();
+            const isAdj = Math.abs(dragStartRow-empty.row)+Math.abs(dragStartCol-empty.col)===1;
+            if(isAdj) swapWithEmpty(dragStartRow, dragStartCol);
+            else slideTile(dragStartRow, dragStartCol, dir);
+            isDragging=false;
+        }
+
+        function onPointerUp() { isDragging=false; }
+
+        canvas.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('mousemove', onPointerMove);
+        window.addEventListener('mouseup', onPointerUp);
+        canvas.addEventListener('touchstart', e => { e.preventDefault(); onPointerDown(e.touches[0]); });
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); onPointerMove(e.touches[0]); });
+        canvas.addEventListener('touchend', onPointerUp);
+
+        speedBtn.addEventListener('mousedown', () => speedMultiplier = SPEED_MULTIPLIER);
+        speedBtn.addEventListener('mouseup', () => speedMultiplier = 1);
+        speedBtn.addEventListener('mouseleave', () => speedMultiplier = 1);
+        speedBtn.addEventListener('touchstart', e => { e.preventDefault(); speedMultiplier = SPEED_MULTIPLIER; });
+        speedBtn.addEventListener('touchend', () => speedMultiplier = 1);
+        speedBtn.addEventListener('touchcancel', () => speedMultiplier = 1);
+
+        function resetGame() {
+            animating = false; animData = null; turtleAnimOffset = null;
+            gameOver = false; isStruggling = false;
+            totalScore = 0; combo = 0; diamondEatenThisTile = false;
+            speedMultiplier = 1;
+            wave = 1;
+            speedFactor = 1.0;
+            floatingTexts = [];
+            board = [
+                [1, 2, 2, 0],
+                [3, 4, 4, 5],
+                [2, 5, 5, 6]
+            ];
+            placeDiamonds(maxDiamondsOnField);
+            initTurtle();
+            gameOverlay.classList.remove('active');
+            updateUI();
+            lastTimestamp = 0;
+            requestAnimationFrame(gameLoop);
+        }
+
+        resetBtn.addEventListener('click', resetGame);
+        overlayResetBtn.addEventListener('click', resetGame);
+
+        resetGame();
+    })();
+</script>
+</body>
+</html>
