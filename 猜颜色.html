@@ -235,6 +235,9 @@
       letter-spacing: 0.04em;
       border: none;
       cursor: pointer;
+      /* 替代 JS 里 touchstart 的 preventDefault：
+         禁用双击缩放/长按手势，同时保证手机上的 click 事件能正常触发 */
+      touch-action: manipulation;
       transition: all 0.2s;
       background: rgba(255,255,255,0.1);
       color: #f0e0c0;
@@ -593,8 +596,11 @@
     }
 
     // 长按事件
+    // 注意：这里不能在 touchstart 中调用 e.preventDefault()。
+    // 手机上 touchstart 一旦 preventDefault，浏览器就不会再派发随后的合成 click 事件，
+    // 导致"新一局"按钮的点击处理器永远不执行（点按钮无反应）。
+    // 手势禁用已交给 CSS 的 touch-action: manipulation 处理。
     function startLongPress(e) {
-      e.preventDefault();
       if (longPressTimer) clearTimeout(longPressTimer);
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
