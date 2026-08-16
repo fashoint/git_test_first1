@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>猜颜色 · 逻辑推理</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background: linear-gradient(145deg, #1e1b2e 0%, #2a2742 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+      padding: 16px;
+    }
+
+    .game-container {
+      width: 100%;
+      max-width: 500px;
+      background: rgba(255, 248, 245, 0.08);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 42px;
+      padding: 24px 20px 28px;
+      box-shadow: 0 25px 45px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 22px;
+    }
+
+    .header {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      color: #f7e3c0;
+    }
+    .header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      line-height: 1.1;
+    }
+    .header span {
+      font-size: 1.2rem;
+      opacity: 0.8;
+      font-weight: 400;
+      background: rgba(255,255,255,0.08);
+      padding: 6px 14px;
+      border-radius: 30px;
+    }
+
+    .legend {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 28px;
+      padding: 12px 22px;
+      font-size: 1rem;
+      font-weight: 500;
+      color: #e0d3b8;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .legend-dot.orange {
+      background: #f39c12;
+      box-shadow: 0 0 12px rgba(243,156,18,0.5);
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+    .legend-dot.white {
+      background: #f5f5f5;
+      border: 2px solid #666;
+      box-shadow: 0 0 8px rgba(255,255,255,0.3);
+    }
+
+    .round-info {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #cfc0a9;
+      letter-spacing: 0.03em;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .round-badge {
+      background: #4a3f5e;
+      padding: 5px 16px;
+      border-radius: 20px;
+      font-size: 1.1rem;
+      color: #f3d9a4;
+    }
+
+    .history {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      padding-right: 6px;
+      margin-bottom: 6px;
+    }
+    .history-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(30, 27, 46, 0.6);
+      border-radius: 24px;
+      padding: 10px 16px;
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .history-pegs {
+      display: flex;
+      gap: 10px;
+    }
+    .history-peg {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.5), inset 0 2px 3px rgba(255,255,255,0.3);
+    }
+    .history-hints {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .hint-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .hint-orange {
+      background: #f39c12;
+      box-shadow: 0 0 15px rgba(243,156,18,0.7), inset 0 1px 3px rgba(255,255,255,0.5);
+      border: 1px solid rgba(255,255,255,0.4);
+    }
+    .hint-white {
+      background: #f8f8f8;
+      border: 2px solid #888;
+      box-shadow: 0 0 8px rgba(255,255,255,0.35);
+    }
+    .hint-empty {
+      background: rgba(80, 80, 90, 0.35);
+      border: 1.5px dashed rgba(255, 255, 255, 0.3);
+      box-shadow: none;
+    }
+
+    .current-guess {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .slot {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: rgba(20, 18, 30, 0.7);
+      border: 3px dashed rgba(255, 255, 255, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      box-shadow: inset 0 4px 8px rgba(0,0,0,0.5);
+    }
+    .slot.filled {
+      border: 3px solid rgba(255,255,255,0.55);
+      box-shadow: 0 0 20px rgba(255,255,255,0.2);
+    }
+    .slot .color-ball {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      box-shadow: 0 6px 12px rgba(0,0,0,0.6), inset 0 -3px 5px rgba(0,0,0,0.3), inset 0 3px 5px rgba(255,255,255,0.3);
+    }
+
+    .color-palette {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      justify-content: center;
+      margin: 8px 0;
+    }
+    .color-option {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.5), inset 0 -3px 5px rgba(0,0,0,0.3), inset 0 3px 5px rgba(255,255,255,0.25);
+      border: 2px solid transparent;
+    }
+    .color-option:active {
+      transform: scale(0.9);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 4px;
+    }
+    .btn {
+      padding: 14px 28px;
+      border-radius: 36px;
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: rgba(255,255,255,0.1);
+      color: #f0e0c0;
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: 0 6px 14px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+    }
+    .btn.primary {
+      background: #c9a063;
+      color: #1e1b2e;
+      border-color: #e2c284;
+      box-shadow: 0 8px 18px rgba(201,160,99,0.4);
+    }
+    .btn.primary:disabled {
+      opacity: 0.5;
+      transform: none;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    .btn.danger {
+      background: rgba(180, 70, 70, 0.6);
+      color: #ffdcc0;
+      border-color: rgba(255,120,120,0.5);
+    }
+    .message {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #ffd966;
+      text-align: center;
+      min-height: 2.2em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .reset-area {
+      display: flex;
+      justify-content: center;
+    }
+
+    @media (max-width: 450px) {
+      .game-container {
+        padding: 18px 12px 20px;
+      }
+      .slot {
+        width: 48px;
+        height: 48px;
+      }
+      .slot .color-ball {
+        width: 40px;
+        height: 40px;
+      }
+      .color-option {
+        width: 44px;
+        height: 44px;
+      }
+      .btn {
+        padding: 12px 20px;
+        font-size: 1rem;
+      }
+      .header h1 {
+        font-size: 2rem;
+      }
+      .history-peg {
+        width: 24px;
+        height: 24px;
+      }
+      .legend {
+        font-size: 0.9rem;
+        gap: 12px;
+        padding: 10px 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="game-container">
+  <div class="header">
+    <h1>🎨 猜颜色</h1>
+    <span>Mastermind</span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item">
+      <span class="legend-dot orange"></span>
+      <span>颜色和位置都对</span>
+    </div>
+    <div class="legend-item">
+      <span class="legend-dot white"></span>
+      <span>颜色对，位置错</span>
+    </div>
+  </div>
+
+  <div class="round-info">
+    <span>📌 回合</span>
+    <span class="round-badge" id="roundDisplay">1 / 8</span>
+  </div>
+
+  <div class="history" id="historyContainer"></div>
+
+  <div class="current-guess" id="currentSlots"></div>
+
+  <div class="color-palette" id="colorPalette"></div>
+
+  <div class="action-buttons">
+    <button class="btn" id="undoBtn">↩️ 撤销</button>
+    <button class="btn primary" id="submitBtn">✅ 提交猜测</button>
+  </div>
+
+  <div class="message" id="messageBox"></div>
+
+  <div class="reset-area">
+    <button class="btn danger" id="newGameBtn">长按查看答案</button>
+  </div>
+</div>
+
+<script>
+  (function() {
+    const CODE_LENGTH = 4;
+    const MAX_ROUNDS = 8;
+    const COLOR_PALETTE = [
+      { name: '红', code: '#ff3b30' },
+      { name: '橙', code: '#ff9500' },
+      { name: '黄', code: '#ffcc00' },
+      { name: '绿', code: '#34c759' },
+      { name: '蓝', code: '#007aff' },
+      { name: '紫', code: '#af52de' }
+    ];
+
+    let secretCode = [];
+    let currentGuess = [];
+    let guessHistory = [];
+    let gameOver = false;
+    let gameWon = false;
+    let currentRound = 1;
+    let answerRevealed = false;
+
+    // 防止长按后误触发点击的标志
+    let ignoreNextClick = false;
+
+    const historyContainer = document.getElementById('historyContainer');
+    const currentSlotsDiv = document.getElementById('currentSlots');
+    const colorPaletteDiv = document.getElementById('colorPalette');
+    const submitBtn = document.getElementById('submitBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const newGameBtn = document.getElementById('newGameBtn');
+    const messageBox = document.getElementById('messageBox');
+    const roundDisplay = document.getElementById('roundDisplay');
+
+    let longPressTimer = null;
+    const LONG_PRESS_DURATION = 800;
+
+    // 生成无重复密码
+    function getRandomCode() {
+      const indices = [0, 1, 2, 3, 4, 5];
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      return indices.slice(0, CODE_LENGTH);
+    }
+
+    function calculateHints(guess, secret) {
+      let black = 0, white = 0;
+      const secretCopy = [...secret];
+      const guessCopy = [...guess];
+      for (let i = 0; i < CODE_LENGTH; i++) {
+        if (guessCopy[i] === secretCopy[i]) {
+          black++;
+          secretCopy[i] = -1;
+          guessCopy[i] = -2;
+        }
+      }
+      for (let i = 0; i < CODE_LENGTH; i++) {
+        if (guessCopy[i] >= 0) {
+          const idx = secretCopy.indexOf(guessCopy[i]);
+          if (idx !== -1) {
+            white++;
+            secretCopy[idx] = -1;
+          }
+        }
+      }
+      return { black, white };
+    }
+
+    function renderCurrentSlots() {
+      currentSlotsDiv.innerHTML = '';
+      for (let i = 0; i < CODE_LENGTH; i++) {
+        const slot = document.createElement('div');
+        slot.className = 'slot' + (i < currentGuess.length ? ' filled' : '');
+        if (i < currentGuess.length) {
+          const ball = document.createElement('div');
+          ball.className = 'color-ball';
+          ball.style.backgroundColor = COLOR_PALETTE[currentGuess[i]].code;
+          slot.appendChild(ball);
+        }
+        slot.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (gameOver) return;
+          if (i < currentGuess.length) {
+            currentGuess = currentGuess.slice(0, i);
+            renderAll();
+          }
+        });
+        currentSlotsDiv.appendChild(slot);
+      }
+    }
+
+    function renderColorPalette() {
+      colorPaletteDiv.innerHTML = '';
+      COLOR_PALETTE.forEach((color, idx) => {
+        const option = document.createElement('div');
+        option.className = 'color-option';
+        option.style.backgroundColor = color.code;
+        option.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (gameOver) return;
+          if (currentGuess.length < CODE_LENGTH) {
+            currentGuess.push(idx);
+            renderAll();
+          }
+        });
+        colorPaletteDiv.appendChild(option);
+      });
+    }
+
+    function renderHistory() {
+      historyContainer.innerHTML = '';
+      guessHistory.forEach((entry) => {
+        const row = document.createElement('div');
+        row.className = 'history-row';
+        const pegsDiv = document.createElement('div');
+        pegsDiv.className = 'history-pegs';
+        entry.guess.forEach(idx => {
+          const peg = document.createElement('div');
+          peg.className = 'history-peg';
+          peg.style.backgroundColor = COLOR_PALETTE[idx].code;
+          pegsDiv.appendChild(peg);
+        });
+        const hintsDiv = document.createElement('div');
+        hintsDiv.className = 'history-hints';
+        for (let i = 0; i < CODE_LENGTH; i++) {
+          const dot = document.createElement('div');
+          dot.className = 'hint-dot';
+          if (i < entry.black) dot.classList.add('hint-orange');
+          else if (i < entry.black + entry.white) dot.classList.add('hint-white');
+          else dot.classList.add('hint-empty');
+          hintsDiv.appendChild(dot);
+        }
+        row.appendChild(pegsDiv);
+        row.appendChild(hintsDiv);
+        historyContainer.appendChild(row);
+      });
+      historyContainer.scrollTop = historyContainer.scrollHeight;
+    }
+
+    function renderMessage() {
+      if (gameOver) {
+        if (gameWon) {
+          messageBox.innerHTML = '🎉 恭喜！你破解了密码！ 🎉';
+        } else {
+          messageBox.innerHTML = '🔓 答案揭晓：' + secretCode.map(idx =>
+            `<span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${COLOR_PALETTE[idx].code};vertical-align:middle;margin:0 2px;"></span>`
+          ).join('');
+        }
+      } else {
+        messageBox.innerHTML = '';
+      }
+    }
+
+    function updateNewGameButton() {
+      if (gameOver || answerRevealed) {
+        newGameBtn.textContent = '🔄 新一局';
+      } else {
+        newGameBtn.textContent = '长按查看答案';
+      }
+    }
+
+    function updateRoundDisplay() {
+      roundDisplay.textContent = `${currentRound} / ${MAX_ROUNDS}`;
+    }
+
+    function renderAll() {
+      renderCurrentSlots();
+      renderHistory();
+      renderMessage();
+      updateRoundDisplay();
+      updateNewGameButton();
+      submitBtn.disabled = (currentGuess.length !== CODE_LENGTH || gameOver);
+    }
+
+    function submitGuess() {
+      if (gameOver) return;
+      if (currentGuess.length !== CODE_LENGTH) return;
+      const { black, white } = calculateHints(currentGuess, secretCode);
+      guessHistory.push({ guess: [...currentGuess], black, white });
+      if (black === CODE_LENGTH) {
+        gameOver = true;
+        gameWon = true;
+        answerRevealed = false;
+        renderAll();
+        return;
+      }
+      if (guessHistory.length >= MAX_ROUNDS) {
+        gameOver = true;
+        gameWon = false;
+        answerRevealed = false;
+        renderAll();
+        return;
+      }
+      currentGuess = [];
+      currentRound = guessHistory.length + 1;
+      renderAll();
+    }
+
+    function undoLastColor() {
+      if (gameOver) return;
+      if (currentGuess.length > 0) {
+        currentGuess.pop();
+        renderAll();
+      }
+    }
+
+    function resetGame() {
+      secretCode = getRandomCode();
+      currentGuess = [];
+      guessHistory = [];
+      gameOver = false;
+      gameWon = false;
+      currentRound = 1;
+      answerRevealed = false;
+      ignoreNextClick = false;
+      renderAll();
+    }
+
+    function revealAnswer() {
+      if (gameOver && !answerRevealed) {
+        gameOver = true;
+        gameWon = false;
+        answerRevealed = true;
+        renderAll();
+        return;
+      }
+      if (!gameOver) {
+        gameOver = true;
+        gameWon = false;
+        answerRevealed = true;
+        renderAll();
+      }
+    }
+
+    // 长按事件
+    function startLongPress(e) {
+      e.preventDefault();
+      if (longPressTimer) clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        ignoreNextClick = true;   // 长按生效后，忽略接下来的点击事件
+        revealAnswer();
+      }, LONG_PRESS_DURATION);
+    }
+
+    function cancelLongPress(e) {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+
+    // 新游戏按钮点击处理
+    newGameBtn.addEventListener('click', (e) => {
+      // 如果刚刚由长按触发了答案展示，则忽略此次点击
+      if (ignoreNextClick) {
+        ignoreNextClick = false;
+        return;
+      }
+      // 只有按钮显示“新一局”时才重置
+      if (newGameBtn.textContent.includes('新一局')) {
+        resetGame();
+      }
+    });
+
+    // 绑定长按事件
+    newGameBtn.addEventListener('mousedown', startLongPress);
+    newGameBtn.addEventListener('mouseup', cancelLongPress);
+    newGameBtn.addEventListener('mouseleave', cancelLongPress);
+    newGameBtn.addEventListener('touchstart', startLongPress, { passive: false });
+    newGameBtn.addEventListener('touchend', cancelLongPress);
+    newGameBtn.addEventListener('touchcancel', cancelLongPress);
+    newGameBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // 键盘支持
+    document.addEventListener('keydown', (e) => {
+      if (gameOver) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitGuess();
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        undoLastColor();
+      }
+    });
+
+    submitBtn.addEventListener('click', submitGuess);
+    undoBtn.addEventListener('click', undoLastColor);
+
+    renderColorPalette();
+    resetGame();
+
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = `
+      .history::-webkit-scrollbar { width: 5px; }
+      .history::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 10px; }
+      .history::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+    `;
+    document.head.appendChild(styleSheet);
+  })();
+</script>
+</body>
+</html>
